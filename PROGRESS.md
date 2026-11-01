@@ -2,7 +2,8 @@
 
 Last updated: 2026-11-01 (end of session 1)
 
-Build plan source: `Instructions.txt` (6 phases, 42 tasks). This file tracks where we actually are.
+Build plan source: `Instructions.txt` (6 phases, 42 tasks) -- kept locally, gitignored. Design docs
+are in [docs/](docs/). This file tracks where we actually are.
 
 ---
 

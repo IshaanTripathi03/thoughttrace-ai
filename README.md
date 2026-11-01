@@ -61,7 +61,7 @@ On Windows use `.\mvnw.cmd` from PowerShell — `./mvnw` under Git Bash is flaky
 Judge0 needs `privileged: true` and cgroup v1. On Docker Desktop for Windows/macOS it runs under
 the WSL2/LinuxKit VM, which provides cgroup v2, so `judge0-workers` often fails to start — always
 check `docker compose logs judge0-workers` before assuming the stack is healthy. Fallbacks are in
-[PROGRESS.md](PROGRESS.md) (Known issues #2) and ADR-001 Amendment A.2 in `Arc.txt`.
+[PROGRESS.md](PROGRESS.md) (Known issues #2) and ADR-001 Amendment A.2 in [docs/ADR-001-architecture.md](docs/ADR-001-architecture.md).
 
 ## Environment variables
 
