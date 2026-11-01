@@ -55,9 +55,13 @@ cd backend && ./mvnw spring-boot:run
 - Judge0: http://localhost:2358
 - PostgreSQL: `localhost:5432`
 
-Judge0 needs `privileged: true` and, on Linux hosts, cgroup v1. On Docker Desktop for
-Windows/macOS it runs under the WSL2/LinuxKit VM; if the workers fail to start, check
-`docker compose logs judge0-workers`.
+On Windows use `.\mvnw.cmd` from PowerShell — `./mvnw` under Git Bash is flaky on this machine
+(cygwin `fork: Resource temporarily unavailable`).
+
+Judge0 needs `privileged: true` and cgroup v1. On Docker Desktop for Windows/macOS it runs under
+the WSL2/LinuxKit VM, which provides cgroup v2, so `judge0-workers` often fails to start — always
+check `docker compose logs judge0-workers` before assuming the stack is healthy. Fallbacks are in
+[PROGRESS.md](PROGRESS.md) (Known issues #2) and ADR-001 Amendment A.2 in `Arc.txt`.
 
 ## Environment variables
 
@@ -81,9 +85,11 @@ Windows/macOS it runs under the WSL2/LinuxKit VM; if the workers fail to start, 
 
 ## Build status
 
+See [PROGRESS.md](PROGRESS.md) for live state, blockers and resume instructions.
+
 - [x] Phase 1.1 — Backend scaffold (Maven, Spring Boot, module packages, config)
-- [x] Phase 1.2 — Docker Compose (PostgreSQL + Judge0 CE) + `V1__initial_schema.sql`
-- [ ] Phase 1.3 — JPA entities
+- [~] Phase 1.2 — Docker Compose + `V1__initial_schema.sql` (Postgres verified; **Judge0 blocked**)
+- [x] Phase 1.3 — JPA entities, repositories, typed config
 - [ ] Phase 1.4 — Auth (register / login / me)
 - [ ] Phase 1.5 — JWT filter + Security config
 - [ ] Phase 1.6 — Problem CRUD + seed 5 problems

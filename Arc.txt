@@ -366,3 +366,78 @@ The architecture optimizes for **shipping speed, safety, and diagnosis quality**
 8. [ ] Build rule-based `RecommendationEngine` behind interface
 9. [ ] Seed 5 curated problems with test cases and skill tags
 10. [ ] Write integration tests for the submission → diagnosis pipeline
+---
+
+# ADR-001 Amendment A — Implementation notes from build session 1
+
+**Status:** Accepted
+**Date:** 2026-11-01
+**Context:** First build session (Phase 1, Tasks 1–3). Recorded here because two of ADR-001's
+decisions met reality and one of them needs revisiting.
+
+## A.1 Spring Boot 4.1, not 3.x — forced, no decision to make
+
+ADR-001 and the technical documentation both specify Spring Boot 3. Spring Initializr now refuses
+to generate Boot 3 projects:
+
+```
+Invalid Spring Boot version '3.5.6', Spring Boot compatibility range is >=4.0.0
+```
+
+The oldest version on offer is 4.0.9; the project is on **4.1.2** with **Spring AI 2.0.2**,
+targeting Java 21 on a JDK 26 host.
+
+Nothing in ADR-001's reasoning depends on the major version — the modular monolith, Spring AI as
+the LLM abstraction, and Spring Security/JPA all hold. The practical consequence is that Boot 3
+snippets from the design docs may need adjusting, and the starter artifact names have changed
+(`spring-boot-starter-webmvc`, not `-web`; `spring-ai-starter-model-anthropic`).
+
+## A.2 Judge0 hosting — Decision 1 needs a sub-decision
+
+ADR-001 chose Judge0 CE self-hosted, and that choice still stands. What it did not settle is
+*where* Judge0 runs **during development**, and that turns out to matter.
+
+Judge0 1.13.1 expects **cgroup v1**. Docker Desktop on Windows (WSL2) gives containers cgroup v2,
+so `judge0-workers` commonly fails to start. ADR-001 noted Judge0 "requires a VM with Docker for
+hosting" as a production concern; it is in fact a **local development** concern too, on any
+Windows or macOS dev machine.
+
+Options, in the order they should be tried:
+
+| Option | Cost | Verdict |
+|---|---|---|
+| WSL2 cgroup v1 (`.wslconfig`) | Free, ~15 min | Try first. Fragile across Docker Desktop updates. |
+| Pin `judge0/judge0:1.13.0` | Free, ~5 min | Try second. More tolerant of host cgroup layout. |
+| Judge0 on a small Linux VM, `JUDGE0_URL` points at it | ~$5/mo or free tier | **Fallback, and already the Phase 6 production shape.** |
+
+The third option costs nothing architecturally: the backend only ever speaks HTTP to Judge0
+through the `CodeExecutor` interface, so the sandbox's location is a config value. If the first
+two fail, take the third rather than fighting the host — it converges dev and prod.
+
+**This does not reopen Option B (custom Docker sandbox) or Option C (Piston).** The original
+reasoning — that building a secure sandbox is a security engineering project, not an MVP task —
+is unchanged, and a cgroup configuration problem is not a reason to take on that risk.
+
+## A.3 Schema ownership — tightening an unstated decision
+
+ADR-001 did not say whether Flyway or Hibernate owns the schema. Decided: **Flyway owns it**,
+and Hibernate runs `ddl-auto: validate`. A drifted entity then fails fast at startup instead of
+silently rewriting tables, and the production deploy path is the same as the local one.
+
+## A.4 `SubmissionStatus.INTERNAL_ERROR` — added to the documented enum
+
+The documented status enum covers learner-caused outcomes only. A Judge0 outage or an
+orchestrator bug would otherwise have to be recorded as one of those, which would feed the
+Phase 2 diagnosis service real-looking evidence about correct code and tell the learner they were
+wrong. `INTERNAL_ERROR` keeps infrastructure failure distinguishable, and the diagnosis step must
+skip it.
+
+This is a direct consequence of ADR-001's own guardrail that the AI never fabricates test results.
+
+## A.5 Action item status
+
+Of ADR-001's ten action items: **1 done** (scaffold + module structure), **2 partially done**
+(Compose written and Postgres verified; Judge0 blocked per A.2), **5 partially done** (entities and
+`V1` migration written, migration never applied). Items 3, 4, 6–10 untouched.
+
+Live build state, with resume instructions, is in `PROGRESS.md`.
