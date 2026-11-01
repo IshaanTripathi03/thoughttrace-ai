@@ -1,0 +1,63 @@
+spring:
+  application:
+    name: thoughttrace-backend
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/thoughttrace}
+    username: ${DB_USER:thoughttrace}
+    password: ${DB_PASSWORD:thoughttrace}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      chat:
+        options:
+          model: ${ANTHROPIC_MODEL:claude-sonnet-5-5}
+          max-tokens: 2048
+          temperature: 0.2
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: always
+
+thoughttrace:
+  jwt:
+    # Base64-encoded 256-bit secret. Override in every non-local environment.
+    secret: ${JWT_SECRET:ZGV2LW9ubHktc2VjcmV0LWNoYW5nZS1tZS10aG91Z2h0dHJhY2UtYWktMjAyNi1rZXk=}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:720}
+  judge0:
+    base-url: ${JUDGE0_URL:http://localhost:2358}
+    auth-token: ${JUDGE0_TOKEN:}
+    java-language-id: 62
+    poll-interval-ms: 400
+    poll-timeout-ms: 20000
+  cors:
+    allowed-origins: ${CORS_ORIGINS:http://localhost:5173}
+  diagnosis:
+    enabled: ${DIAGNOSIS_ENABLED:true}
+
+logging:
+  level:
+    com.thoughttrace: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

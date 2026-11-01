@@ -1,0 +1,68 @@
+# Local development infrastructure for ThoughtTrace AI.
+# Starts PostgreSQL (app DB) and the Judge0 CE stack (code execution sandbox).
+# The Spring Boot backend and the React frontend run on the host during development.
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: tt-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-thoughttrace}
+      POSTGRES_USER: ${DB_USER:-thoughttrace}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-thoughttrace}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-thoughttrace} -d ${DB_NAME:-thoughttrace}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------- Judge0 CE ----------
+  judge0-db:
+    image: postgres:16
+    container_name: tt-judge0-db
+    environment:
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: ${JUDGE0_DB_PASSWORD:-judge0}
+    volumes:
+      - judge0-pgdata:/var/lib/postgresql/data
+    restart: always
+
+  judge0-redis:
+    image: redis:7-alpine
+    container_name: tt-judge0-redis
+    command: ["redis-server", "--appendonly", "no", "--requirepass", "${JUDGE0_REDIS_PASSWORD:-judge0}"]
+    restart: always
+
+  judge0-server:
+    image: judge0/judge0:1.13.1
+    container_name: tt-judge0-server
+    # Judge0 needs privileged mode to create its isolate sandboxes.
+    privileged: true
+    ports:
+      - "2358:2358"
+    env_file:
+      - ./judge0.conf
+    depends_on:
+      - judge0-db
+      - judge0-redis
+    restart: always
+
+  judge0-workers:
+    image: judge0/judge0:1.13.1
+    container_name: tt-judge0-workers
+    command: ["./scripts/workers"]
+    privileged: true
+    env_file:
+      - ./judge0.conf
+    depends_on:
+      - judge0-server
+    restart: always
+
+volumes:
+  pgdata:
+  judge0-pgdata:

@@ -1,0 +1,150 @@
+Here's your Claude Code project prompt — paste this at the start of your Claude Code session:
+
+---
+
+```markdown
+# THOUGHTTRACE AI — Claude Code Build Prompt
+
+## WHO I AM
+I'm Ishaan, a recent graduate building ThoughtTrace AI as a portfolio project to land an SDE role. I have basic Java and React knowledge. I need you to guide me step-by-step through building this — one small task at a time.
+
+## HOW WE WORK TOGETHER
+- Break the entire project into small, numbered tasks
+- Give me ONE task at a time with copy-paste commands
+- After each task: tell me WHAT we just did and WHY (2-3 lines max)
+- Then ask me to confirm the output or paste any errors
+- Only after I confirm → move to the next task
+- If something fails, debug it with me — don't skip ahead
+- Track our progress: "Task 4/12 of Phase 1 complete" style
+- No fluff, no filler, no "Great job!" — just build
+
+## WHAT WE'RE BUILDING
+ThoughtTrace AI — an AI-powered adaptive coding education platform.
+
+**Core loop:** User submits Java code → executes in sandbox → AI diagnoses WHY it failed → tracks skill weaknesses → recommends next problem
+
+**Stack:**
+- Frontend: React + TypeScript + Vite + Tailwind CSS + shadcn/ui + Monaco Editor + Framer Motion (SVG visualizations)
+- Backend: Java 17+ + Spring Boot 3 + Spring AI + Spring Security + Spring Data JPA
+- Database: PostgreSQL 15+
+- Code Execution: Judge0 CE (self-hosted via Docker)
+- AI: Claude API via Spring AI for structured diagnosis
+- Auth: JWT (stateless)
+- Build: Maven (backend), npm (frontend)
+- Dev Environment: Docker Compose (PostgreSQL + Judge0)
+
+## PROJECT STRUCTURE
+```
+thoughttrace-ai/
+├── backend/                    # Spring Boot monolith
+│   └── src/main/java/com/thoughttrace/
+│       ├── auth/               # JWT auth, user management
+│       ├── problem/            # Problem CRUD, test cases
+│       ├── submission/         # Code submission, status tracking
+│       ├── execution/          # Judge0 client, result parsing
+│       ├── diagnosis/          # Claude API, prompt building
+│       ├── skill/              # Skill profiles, proficiency calc
+│       ├── recommendation/     # Daily problem selection
+│       ├── analytics/          # Dashboard aggregations
+│       ├── visualization/      # Execution trace generation
+│       └── common/             # Shared DTOs, exceptions, config
+├── frontend/                   # React SPA
+│   └── src/
+│       ├── pages/              # Landing, Auth, Dashboard, Problems, Workspace, Profile
+│       ├── components/         # Editor, DiagnosisPanel, Visualizer, SkillRadar, etc.
+│       ├── hooks/              # API hooks, playback hook, auth hook
+│       ├── lib/                # API client, utils
+│       └── stores/             # Zustand stores
+├── docker-compose.yml          # PostgreSQL + Judge0
+└── README.md
+```
+
+## DATABASE ENTITIES
+users, problems, skills, problem_skills, test_cases, submissions, test_results, diagnoses, user_skill_profiles, daily_recommendations, learning_sessions, user_feedback
+
+## BUILD PHASES (follow this order strictly)
+
+### PHASE 1 — Foundation (Backend scaffold + DB + Judge0)
+1. Initialize Spring Boot project with Maven (dependencies: web, jpa, security, validation, postgresql, spring-ai-anthropic)
+2. Set up Docker Compose: PostgreSQL + Judge0 CE
+3. Create JPA entities: User, Problem, TestCase, Submission, TestResult
+4. Create repositories + services + REST controllers for auth (register/login/me)
+5. Implement JWT filter + Spring Security config
+6. Problem CRUD + seed 5 curated problems with test cases (Two Sum, Valid Parentheses, Max Subarray, Sliding Window Max, Longest Substring Without Repeating)
+7. Judge0 integration: ExecutionService → submit code, poll results, parse output
+8. Submission pipeline: POST /api/submissions → execute via Judge0 → save TestResults → return status
+9. Test the full flow: register → login → submit Java code → get pass/fail
+
+### PHASE 2 — AI Diagnosis
+10. Create Diagnosis entity + repository
+11. Build the diagnosis prompt template (structured JSON output)
+12. Integrate Spring AI ChatClient with Claude API
+13. DiagnosisService: assemble evidence → call Claude → parse → save
+14. Wire diagnosis into submission pipeline (async, on failure)
+15. GET /api/submissions/{id} returns testResults + diagnosis
+16. Feedback entity + endpoint
+
+### PHASE 3 — Frontend Core
+17. Scaffold React app: Vite + TypeScript + Tailwind + shadcn/ui
+18. API client setup (axios/fetch + JWT interceptor)
+19. Auth pages (login/register) + auth context/store
+20. Problem list page (filterable by difficulty, skill)
+21. Problem workspace page: Monaco editor + problem description + submit button
+22. Test results panel
+23. Diagnosis panel (error explanation, evidence, suggestion, counterexample)
+24. Submission history page
+
+### PHASE 4 — Visualizer
+25. Backend: TraceGenerator interface + SlidingWindowTraceGenerator + TwoPointerTraceGenerator
+26. Trace API endpoint: GET /api/visualizations/{problemId}?input=X
+27. Frontend: VisualizerContainer + PlaybackBar + SVG array visualization
+28. Pointer/window highlighting + step-through animation
+29. Code line synchronization (highlight current line in editor)
+
+### PHASE 5 — Skill Profile & Recommendations
+30. Skill + UserSkillProfile entities + seed skill categories
+31. SkillProfileService: update on each submission (proficiency calc, error pattern tracking)
+32. RecommendationEngine: rule-based daily problem selection with rationale
+33. DailyRecommendation entity + API
+34. LearningSession tracking
+35. Frontend: Dashboard page — skill radar, streak calendar, recommendation card, error patterns
+36. Frontend: Profile page — skill detail drill-down
+
+### PHASE 6 — Polish
+37. Coaching endpoints: hint, explain, solution (progressive assistance)
+38. Rate limiting on submission + AI endpoints
+39. Error handling + loading states everywhere
+40. Responsive layout
+41. README + screenshots
+42. Deploy: frontend to Vercel, backend to Railway/Render, DB to Supabase/Neon
+
+## KEY DESIGN RULES
+- Submission source code is ALWAYS saved to DB before any external call (no data loss)
+- Diagnosis is async and best-effort — test results always show even if AI fails
+- Judge0 handles all code execution — NEVER run user code in the Spring Boot process
+- AI prompt must include actual execution evidence — never let the LLM fabricate test results
+- Skill proficiency: (independent_solves * 1.0 + assisted_solves * 0.3) / total_attempts * 100
+- Recommendation: weakest skill → stale preference → difficulty bracket → exclude mastered
+- Each module communicates via service interfaces only — no cross-module repository access
+
+## COMMUNICATION RULES
+- One task at a time. Give me the command(s) to run or code to write.
+- After each task: "✅ What we did: ... | Why: ..." (2-3 lines)
+- Then: "Paste your output / Confirm it works / Share any errors"
+- Only then give the next task
+- If I paste an error, diagnose and fix it before moving on
+- Track progress: "Phase 1 — Task 3/9"
+- No generic explanations. Be specific to THIS project.
+- Give me commands I can copy-paste directly
+
+## START
+Begin with Phase 1, Task 1. Set up the Spring Boot project with Maven. Give me the commands and the initial pom.xml dependencies.
+```
+
+---
+
+Copy this entire block, open Claude Code, and paste it. It'll start walking you through Task 1 immediately — one step at a time, with copy-paste commands, asking for your output before moving on.
+
+Two things to do before starting:
+1. Make sure Docker Desktop is installed and running
+2. Get your Anthropic API key from [console.anthropic.com](https://console.anthropic.com) — you'll need it in Phase 2

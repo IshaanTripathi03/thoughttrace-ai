@@ -1,0 +1,368 @@
+# ADR-001: ThoughtTrace AI — System Architecture
+
+**Status:** Proposed  
+**Date:** 2026-11-01  
+**Deciders:** Solo developer / founding team
+
+---
+
+## Context
+
+ThoughtTrace AI is an AI-powered adaptive coding education platform. It needs to:
+
+1. Accept and execute arbitrary Java code submissions safely
+2. Compare outputs against test cases
+3. Send failure evidence to an LLM for structured diagnosis
+4. Visualize algorithm execution step-by-step
+5. Maintain per-learner skill profiles
+6. Recommend personalized daily problems based on weaknesses
+7. Ship an MVP in ~8 weeks as a solo/small-team project
+
+Key constraints:
+- Must securely sandbox untrusted code — this is the highest-risk component
+- LLM calls are expensive and slow (~3-8s) — must not block UX
+- Solo developer — minimize operational complexity
+- Budget-conscious — no managed Kubernetes or multi-region deploys for MVP
+
+---
+
+## Decision
+
+A **modular monolith** backend (Spring Boot) with an **external code execution service** (Judge0) and **LLM integration** (Claude API via Spring AI), served by a **React SPA** frontend.
+
+```
+                    ┌─────────────────────────┐
+                    │       React SPA          │
+                    │  Vite + TS + Tailwind    │
+                    │  Monaco · SVG Visualizer │
+                    └───────────┬─────────────┘
+                                │ HTTPS / REST
+                    ┌───────────▼─────────────┐
+                    │    Spring Boot Monolith  │
+                    │                          │
+                    │  ┌─────┐ ┌───────────┐  │
+                    │  │Auth │ │Submission  │  │
+                    │  │     │ │Service     │  │
+                    │  └─────┘ └─────┬──────┘  │
+                    │                │         │
+                    │  ┌─────────────▼──────┐  │
+                    │  │Execution           │  │
+                    │  │Orchestrator        │  │
+                    │  └──┬─────────────┬───┘  │
+                    │     │             │      │
+                    │  ┌──▼──┐   ┌──────▼───┐  │
+                    │  │Judge│   │Diagnosis  │  │
+                    │  │0    │   │Service    │  │
+                    │  │Client│  │(Spring AI)│  │
+                    │  └──┬──┘   └──────┬───┘  │
+                    │     │             │      │
+                    │  ┌──▼─────────────▼───┐  │
+                    │  │  Skill Profile &    │  │
+                    │  │  Recommendation     │  │
+                    │  │  Services           │  │
+                    │  └────────┬────────────┘  │
+                    │           │               │
+                    └───────────┼───────────────┘
+                      │         │           │
+            ┌─────────▼──┐  ┌──▼────┐  ┌───▼──────┐
+            │  Judge0 CE  │  │Postgres│ │Claude API│
+            │  (Docker)   │  │       │  │          │
+            └─────────────┘  └───────┘  └──────────┘
+```
+
+---
+
+## Options Considered
+
+### Decision 1: Code Execution Strategy
+
+#### Option A: Judge0 CE (Self-hosted) ✅ SELECTED
+
+| Dimension | Assessment |
+|-----------|------------|
+| Complexity | **Low** — Docker image, minimal config |
+| Cost | **Low** — self-hosted, no per-execution fee |
+| Security | **High** — battle-tested sandbox with cgroups, seccomp |
+| Scalability | **Medium** — scales horizontally with workers |
+| Team familiarity | **Medium** — REST API, standard integration |
+
+**Pros:** Production-grade sandbox out of the box. Handles compilation, execution, timeouts, memory limits. REST API. Supports 60+ languages for future expansion. Open-source, self-hostable.
+
+**Cons:** Requires a VM with Docker for hosting (needs `--privileged` or specific kernel capabilities). Adds an infrastructure dependency. Worker queue can bottleneck under load.
+
+#### Option B: Custom Docker-based sandbox
+
+| Dimension | Assessment |
+|-----------|------------|
+| Complexity | **Very High** — weeks of security hardening |
+| Cost | **Low** — self-hosted |
+| Security | **Risky** — containers alone are not a sufficient sandbox for arbitrary code |
+| Scalability | **Medium** |
+| Team familiarity | **Low** |
+
+**Pros:** Full control over execution environment.
+
+**Cons:** Building a secure code execution sandbox is a significant security engineering project. Not viable for a solo dev MVP. Plain Docker containers without additional hardening (gVisor, seccomp profiles, namespace isolation) are insufficient for internet-facing arbitrary code execution.
+
+#### Option C: Piston API (hosted)
+
+| Dimension | Assessment |
+|-----------|------------|
+| Complexity | **Very Low** — hosted API |
+| Cost | **Medium** — per-call pricing |
+| Security | **High** — managed |
+| Scalability | **High** |
+| Team familiarity | **Low** |
+
+**Pros:** Zero infrastructure. Instant setup.
+
+**Cons:** Less community adoption than Judge0. Potential latency. Vendor lock-in. Cost scales linearly with usage. Less control over execution parameters.
+
+**Decision rationale:** Judge0 CE gives production-grade sandboxing without per-execution cost, supports future multi-language needs, and is the most widely deployed open-source code execution engine.
+
+---
+
+### Decision 2: Backend Architecture
+
+#### Option A: Spring Boot Modular Monolith ✅ SELECTED
+
+| Dimension | Assessment |
+|-----------|------------|
+| Complexity | **Low** — one deployable, clean package structure |
+| Cost | **Low** — single server |
+| Scalability | **Medium** — vertical, horizontal with sticky sessions |
+| Team familiarity | **High** — matches Java target language |
+
+**Pros:** Single deployment unit. Shared database transactions. Simple debugging. Spring AI provides first-class LLM integration. Matches the platform's Java focus. Fast iteration speed.
+
+**Cons:** Eventual refactoring needed if components need independent scaling. Code execution orchestration (polling Judge0) occupies threads.
+
+#### Option B: Microservices (separate submission, diagnosis, recommendation services)
+
+| Dimension | Assessment |
+|-----------|------------|
+| Complexity | **Very High** — service mesh, distributed tracing, API gateway |
+| Cost | **High** — multiple services, infra overhead |
+| Scalability | **High** — independent scaling |
+| Team familiarity | **Medium** |
+
+**Pros:** Independent deployment and scaling per service.
+
+**Cons:** Massive operational overhead for a solo dev. Distributed transactions for skill profile updates become complex. Not justified at MVP scale.
+
+**Decision rationale:** A monolith with clean internal module boundaries gives all the benefits of separation of concerns without the operational cost. Extract services later if specific components (e.g., execution orchestration) need independent scaling.
+
+### Internal Module Boundaries
+
+```
+com.thoughttrace
+├── auth/           # Spring Security, JWT, user management
+├── problem/        # Problem CRUD, test cases, seeding
+├── submission/     # Code submission, status tracking
+├── execution/      # Judge0 client, result parsing
+├── diagnosis/      # Claude API integration, prompt building
+├── skill/          # Skill profiles, proficiency calculation
+├── recommendation/ # Daily problem selection, rationale
+├── analytics/      # Dashboard aggregations
+├── visualization/  # Execution trace recording
+└── common/         # Shared DTOs, exceptions, config
+```
+
+Each module exposes a service interface. No cross-module repository access. Communication via service injection only.
+
+---
+
+### Decision 3: AI Integration
+
+#### Option A: Claude API via Spring AI ✅ SELECTED
+
+| Dimension | Assessment |
+|-----------|------------|
+| Complexity | **Low** — Spring AI abstracts HTTP/streaming |
+| Cost | **Medium** — per-token pricing |
+| Quality | **High** — strong reasoning for code analysis |
+| Latency | **Medium** — 3-8s typical |
+
+**Pros:** Strong code reasoning. Structured JSON output. Spring AI provides clean abstraction with retries, fallbacks, and prompt templates. Easy to swap models later.
+
+**Cons:** Per-token cost. Latency requires async UX patterns. Model updates may change output format.
+
+#### Option B: Self-hosted open-source model (CodeLlama, DeepSeek)
+
+| Dimension | Assessment |
+|-----------|------------|
+| Complexity | **Very High** — GPU infra, model serving |
+| Cost | **High upfront** — GPU instance |
+| Quality | **Lower** — weaker reasoning than frontier models |
+| Latency | **Variable** |
+
+**Pros:** No per-call cost after setup. Data stays on-prem.
+
+**Cons:** Requires GPU infrastructure. Significantly weaker at structured code diagnosis. Not viable for solo dev MVP.
+
+**Decision rationale:** Claude API via Spring AI gives the highest diagnosis quality with the lowest integration effort. The `ChatClient` abstraction makes the model swappable if needed.
+
+### Async Diagnosis Pattern
+
+```
+User submits → 202 Accepted (submission ID)
+        ↓
+Backend: execute in Judge0 (poll)
+        ↓
+Backend: if failed → call Claude API (async)
+        ↓
+Frontend: polls GET /submissions/{id} until status is terminal
+        ↓
+Diagnosis attached to submission when ready
+```
+
+Frontend shows test results immediately. Diagnosis appears with a loading shimmer and fills in when the AI responds. If the AI call fails, the user still has test results — degraded but functional.
+
+---
+
+### Decision 4: Database
+
+#### Option A: PostgreSQL ✅ SELECTED
+
+| Dimension | Assessment |
+|-----------|------------|
+| Complexity | **Low** — single relational DB |
+| Cost | **Low** — managed options from $0-15/mo |
+| Scalability | **High** — handles millions of rows easily |
+| Team familiarity | **High** |
+
+**Pros:** Relational model fits the domain perfectly (users → submissions → test results → diagnoses). JSONB for flexible evidence storage. Excellent with Spring Data JPA. Managed options everywhere (Supabase, Neon, RDS). pgvector available if semantic search is needed later.
+
+**Cons:** No built-in real-time push (need SSE or polling for live updates).
+
+#### Option B: PostgreSQL + Redis
+
+**Pros:** Redis for Judge0 polling cache, session storage, rate limiting.
+
+**Cons:** Additional infrastructure. Not needed at MVP scale — Spring's in-memory cache and database-backed sessions are sufficient.
+
+**Decision:** Start with PostgreSQL only. Add Redis when rate limiting or caching demands exceed what the application can handle in-memory.
+
+---
+
+### Decision 5: Frontend Architecture
+
+#### Option A: React SPA + Monaco + SVG Visualizations ✅ SELECTED
+
+| Dimension | Assessment |
+|-----------|------------|
+| Complexity | **Medium** — Monaco + custom visualizer |
+| Cost | **Low** — static hosting |
+| UX | **High** — desktop-class code editor |
+| Team familiarity | **High** |
+
+**Pros:** Monaco gives VSCode-quality editing. SVG + Framer Motion is sufficient for 2D algorithm visualization (arrays, pointers, windows). TanStack Query handles server state cleanly. shadcn/ui provides accessible, customizable components. Static deployment to Vercel/Cloudflare.
+
+**Cons:** Monaco is large (~2MB). SVG visualizations require custom component development.
+
+#### Option B: Next.js SSR
+
+**Pros:** SEO for landing/marketing pages. Server components.
+
+**Cons:** The core product (code editor + visualizer) is entirely client-side. SSR adds complexity without benefit for the app shell. The coding workspace cannot meaningfully server-render.
+
+**Decision:** React SPA. If SEO matters for landing pages, add a separate lightweight marketing site later.
+
+### Visualization Strategy
+
+| Phase | Technique | Algorithms |
+|-------|-----------|------------|
+| MVP | SVG + Framer Motion | Arrays, two pointers, sliding window |
+| Phase 2 | SVG + Framer Motion | Stacks, queues, sorting, recursion call tree |
+| Phase 3 | SVG + D3.js | Trees, graphs (2D) |
+| Phase 4+ | React Three Fiber | 3D graph traversal, pathfinding (selective) |
+
+2D-first. 3D only where it demonstrably improves understanding over 2D.
+
+---
+
+### Decision 6: Recommendation Engine
+
+#### Option A: Rule-based engine ✅ SELECTED
+
+| Dimension | Assessment |
+|-----------|------------|
+| Complexity | **Low** — pure business logic |
+| Cost | **Zero** — no ML infra |
+| Explainability | **High** — deterministic rules produce clear rationale |
+| Quality | **Medium** — good enough for curated problem set |
+
+**Pros:** Fully explainable (key product requirement). Buildable in a day. No training data needed. Easy to tune based on user feedback.
+
+**Cons:** Won't discover non-obvious patterns. Limited to predefined heuristics.
+
+**Rules:**
+```
+1. Rank skills by proficiency ASC (weakest first)
+2. Filter: skill must have >= 2 attempts
+3. Prefer skills not practiced in 3+ days (spaced practice)
+4. Select difficulty based on proficiency bracket
+5. Exclude independently solved problems
+6. Break ties by: interview relevance > recency > randomness
+```
+
+#### Option B: ML-based collaborative filtering
+
+**Pros:** Could find non-obvious skill gaps. Improves with data.
+
+**Cons:** Needs substantial training data. Cold-start problem. Black box (conflicts with explainability requirement). Not viable for 10-30 problems.
+
+**Decision:** Rule-based for MVP. The curated problem set (10-30 problems) doesn't need ML. Revisit when the catalog exceeds 100+ problems and user data supports training.
+
+---
+
+## Trade-off Analysis
+
+| Concern | This Architecture | Alternative |
+|---------|-------------------|-------------|
+| **Time to MVP** | ~8 weeks | Microservices: 16+ weeks |
+| **Operational cost** | 1 server + 1 Judge0 VM + managed DB | Multiple services + orchestration |
+| **Code execution safety** | Judge0's proven sandbox | Custom sandbox: high risk |
+| **Diagnosis quality** | Frontier LLM (Claude) | Open-source model: weaker |
+| **Recommendation explainability** | Fully deterministic rules | ML: black box |
+| **Scaling ceiling** | ~1000 concurrent users before refactoring | Microservices: higher ceiling from day 1 |
+| **Future flexibility** | Module boundaries allow extraction | Monolith risks coupling if boundaries decay |
+
+The architecture optimizes for **shipping speed, safety, and diagnosis quality** over theoretical scalability. Every major component (executor, LLM, recommendation engine) sits behind an interface and can be swapped independently.
+
+---
+
+## Consequences
+
+### What becomes easier
+- Single deployment: one `docker-compose up` starts everything
+- Debugging: single process, shared logs, no distributed tracing needed
+- Transactions: skill profile updates are atomic with submission recording
+- Iteration: change diagnosis prompt → redeploy → test in minutes
+
+### What becomes harder
+- Scaling execution independently from the API server (mitigated by Judge0 being a separate service already)
+- Supporting real-time features (live collaboration, multiplayer) — would need WebSockets or SSE added later
+- Running Judge0 in production — needs a VM with Docker privileges, not just a container platform
+
+### What we'll need to revisit
+- **Redis:** When rate limiting, caching, or session storage outgrows in-memory
+- **Queue system:** If diagnosis requests need to be decoupled from the request cycle (currently async within the monolith)
+- **Service extraction:** If execution orchestration or AI diagnosis needs independent scaling
+- **CDN:** When the problem set includes images, diagrams, or large assets
+- **pgvector:** When semantic search over educational content becomes a priority
+
+---
+
+## Action Items
+
+1. [ ] Scaffold Spring Boot project with module package structure
+2. [ ] Set up Docker Compose: PostgreSQL + Judge0 CE
+3. [ ] Implement Judge0 client behind `CodeExecutor` interface
+4. [ ] Scaffold React app with Vite + Tailwind + shadcn/ui + Monaco
+5. [ ] Define JPA entities and Flyway migrations for core tables
+6. [ ] Build Spring AI `ChatClient` wrapper with diagnosis prompt template
+7. [ ] Implement submission flow: submit → execute → diagnose → respond
+8. [ ] Build rule-based `RecommendationEngine` behind interface
+9. [ ] Seed 5 curated problems with test cases and skill tags
+10. [ ] Write integration tests for the submission → diagnosis pipeline
