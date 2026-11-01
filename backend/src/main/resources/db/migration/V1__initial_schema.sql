@@ -86,6 +86,10 @@ CREATE TABLE submissions (
 
 CREATE INDEX idx_submissions_user_problem ON submissions (user_id, problem_id, submitted_at DESC);
 
+-- Polling path: submissions still in flight.
+CREATE INDEX idx_submissions_status ON submissions (status)
+    WHERE status IN ('PENDING','COMPILING','RUNNING');
+
 -- ---------- test_results ----------
 CREATE TABLE test_results (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
